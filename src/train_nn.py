@@ -8,9 +8,13 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from src.dataset import SummaryDataset
-from src.embeddings import load_vocab, GloveEmbedding, load_embeddings, save_vocab
-from src.model import AttentionModel
+from src.embeddings import load_vocab, GloveEmbedding, load_embeddings, save_vocab, load_limited_embeddings, \
+    GloveLimitedEmbedding
+from src.model import AttentionModel, AttentionModelLimited
 from datetime import datetime
+import logging
+import sys
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -22,12 +26,12 @@ train_options = {
     "train_model": True,
     "load_model": False,
     "save_model": True,
-    "load_vocab": True,
+    "load_vocab": False,
     "vocab_path": "data/vocab.json",
     "model_path": "saved_models/attention_summ.model",
     "train_data_path": "data/wikihow_known_500.csv",
     "test_data_path": "data/wikihow_known_500.csv",
-    "batch_size": 1,
+    "batch_size": 32,
     "lr_rate": 0.0001,
     "epochs": 100,
 }
@@ -120,29 +124,34 @@ def get_test_loss(model, bucket_loader, loss_fn):
 
 def get_vocab_from_dataset(data_path):
     all_words = set()
-    all_words.add("<start>")
-    all_words.add("<end>")
     all_words.add("<unk>")
     df = pd.read_csv(data_path, sep=",")
     for text, summary in zip(df["text"], df["summary"]):
         for word in text.split():
+            if word in ("<start>", "<end>"):
+                continue
             all_words.add(word)
         for word in summary.split():
+            if word in ("<start>", "<end>"):
+                continue
             all_words.add(word)
-    return {word:i for i, word in enumerate(all_words)}
+    wordtoidx = {word:i for i, word in enumerate(all_words)}
+    ln = len(all_words)
+    wordtoidx["<start>"] = ln
+    wordtoidx["<end>"] = ln+1
+    return wordtoidx
 
 def train_nn_with_limited_embedding(train_options):
     if train_options["load_vocab"]:
         wordtoidx = load_vocab(train_options["vocab_path"])
-        embeddings = GloveEmbedding(train_options["embedding_dim"], train_options["embedding_path"], False)
+        embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), None, train_options["embedding_dim"])
     else:
-        embedding_vec, wordtoidx = load_embeddings(train_options["embedding_path"])
-        embeddings = GloveEmbedding(train_options["embedding_dim"])
-        with torch.no_grad():
-            embeddings.embeddings.weight.data = embedding_vec
+        wordtoidx = get_vocab_from_dataset(train_options["train_data_path"])
+        embedding_vec = load_limited_embeddings(wordtoidx, train_options["embedding_path"], train_options["embedding_dim"])
+        embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), embedding_vec, train_options["embedding_dim"])
         save_vocab(wordtoidx, train_options["vocab_path"])
 
-    model = AttentionModel(embeddings)
+    model = AttentionModelLimited(embeddings, len(wordtoidx.keys()))
 
     model.to(device)
 
@@ -160,13 +169,13 @@ def train_nn_with_limited_embedding(train_options):
 
     optimizer = Adam(model.parameters(), lr=train_options["lr_rate"])
 
-    min_test_loss = 20000
+    min_test_loss = 1e+6
 
     for epoch_num in range(train_options["epochs"]):
         print(f"Epoch: {epoch_num}")
         total_train_batches = 0
         total_train_loss = 0
-        grad_acc_batch = 16
+        grad_acc_batch = 4
 
         model.train()
 
@@ -182,7 +191,9 @@ def train_nn_with_limited_embedding(train_options):
 
                 loss = loss / grad_acc_batch
 
+                print(f"Before backprop: {datetime.now()}")
                 loss.backward()
+                print(f"After backprop: {datetime.now()}")
                 if ((batch_idx + 1) % grad_acc_batch == 0) or (batch_idx == (len(train_loader) - 1)):
                     optimizer.step()
                     optimizer.zero_grad()
@@ -271,4 +282,5 @@ def train_nn(train_options):
 
     return model
 
-model = train_nn(train_options)
+# model = train_nn(train_options)
+model = train_nn_with_limited_embedding(train_options)

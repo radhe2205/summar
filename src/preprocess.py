@@ -331,10 +331,14 @@ def add_start_end(file_path):
 df = pd.read_csv("data/wikihow_known_500.csv")
 summ_cnt = {100: 0, 200:0, 300:0, 400:0, 500:0}
 max_text_cnt = 0
-
+all_words = set()
 for text, summary in zip(df["text"], df["summary"]):
     ln = len(summary.split())
     txt_ln = len(text.split())
+    for word in summary.split():
+        all_words.add(word)
+    for word in text.split():
+        all_words.add(word)
     if txt_ln > max_text_cnt:
         max_text_cnt = txt_ln
 
@@ -342,6 +346,7 @@ for text, summary in zip(df["text"], df["summary"]):
         if ct > ln:
             summ_cnt[ct] += 1
 
+print(f"Total words: {len(all_words)}")
 print(summ_cnt)
 print(max_text_cnt)
 

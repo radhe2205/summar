@@ -4,6 +4,39 @@ import numpy as np
 import torch
 from torch import nn
 
+class GloveLimitedEmbedding(nn.Module):
+    def __init__(self, total_embeddings, embedding_w, embedding_dim=300): # total_embedding includes start and end marker.
+        super(GloveLimitedEmbedding, self).__init__()
+        if embedding_w is not None:
+            self.embeddings = nn.Embedding(embedding_w.shape[0] + 1, embedding_w.shape[1], padding_idx=-1).requires_grad_(False)
+            with torch.no_grad():
+                self.embeddings.weight.data[:-1, :] = embedding_w
+            self.total_embeddings = embedding_w.shape[0]
+
+        elif total_embeddings is not None:
+            self.embeddings = nn.Embedding(total_embeddings - 1, embedding_dim, padding_idx=-1).requires_grad_(False)
+            self.total_embeddings = total_embeddings - 2
+
+        else:
+            raise Exception("Bad Initialisation")
+
+        self.beg_end_emb = nn.Embedding.from_pretrained(torch.randn(2, embedding_dim)).requires_grad_(False)
+        self.start_idx = self.embeddings.weight.shape[0] - 1
+        self.end_idx = self.start_idx + 1
+
+    def get_embeddings(self, idxes):
+        # idxes[idxes == -1] = self.embeddings.padding_idx
+
+        start_idxes = idxes == self.start_idx
+        end_idxes = idxes == self.end_idx
+        idxes[idxes == -1] = self.embeddings.padding_idx
+        idxes[start_idxes] = self.embeddings.padding_idx
+        idxes[end_idxes] = self.embeddings.padding_idx
+
+        embedding_vec = self.embeddings(idxes)
+        embedding_vec[start_idxes] = self.beg_end_emb(torch.tensor(0).to(idxes.device))
+        embedding_vec[end_idxes] = self.beg_end_emb(torch.tensor(1).to(idxes.device))
+        return embedding_vec
 
 class GloveEmbedding(nn.Module):
     def __init__(self, embedding_dim, embedding_path = None, reload = False):
@@ -32,6 +65,19 @@ class GloveEmbedding(nn.Module):
         embedding_vec[idxes == self.start_idx] = self.beg_end_marker(torch.tensor(0).to(idxes.device))
         embedding_vec[idxes == self.end_idx] = self.beg_end_marker(torch.tensor(1).to(idxes.device))
         return embedding_vec
+
+def load_limited_embeddings(wordtoidx, embedding_path, embedding_dim = 300):
+    rem = 2 if "<start>" in wordtoidx else 0
+    embedding_vec = torch.zeros((len(wordtoidx.keys()) - rem, embedding_dim))
+    with open(embedding_path, "r", encoding="utf-8") as f:
+        for line in f:
+            vals = line.split()
+            word = vals[0]
+            if word not in wordtoidx or word in ("<start>", "<end>"):
+                continue
+            embedding_vec[wordtoidx[word]] = torch.from_numpy(np.asarray(vals[1:], "float32"))
+    print("Finished loading embedding.")
+    return embedding_vec
 
 def load_embeddings(embedding_path, embedding_dim = 300):
     embedding_vec = torch.zeros((400004, embedding_dim))
