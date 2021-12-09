@@ -5,7 +5,8 @@ import pandas as pd
 from nltk import WordNetLemmatizer
 import matplotlib.pyplot as plt
 
-from src.embeddings import load_vocab
+from src.embeddings import load_vocab, load_embeddings
+
 
 def clean_text(text):
     lemmatizer = WordNetLemmatizer()
@@ -328,32 +329,46 @@ def add_start_end(file_path):
         texts.append(text)
     pd.DataFrame({"text": texts, "summary": summaries}).to_csv(file_path, sep = ",")
 
-df = pd.read_csv("data/wikihow_known_500.csv")
-summ_cnt = {100: 0, 200:0, 300:0, 400:0, 500:0}
-max_text_cnt = 0
-all_words = set()
-for text, summary in zip(df["text"], df["summary"]):
-    ln = len(summary.split())
-    txt_ln = len(text.split())
-    for word in summary.split():
-        all_words.add(word)
-    for word in text.split():
-        all_words.add(word)
-    if txt_ln > max_text_cnt:
-        max_text_cnt = txt_ln
+def all_known_count(emb_path, data_path):
+    _, vocab = load_embeddings(emb_path, 50)
+    df = pd.read_csv(data_path, sep=",")
+    sum_count = 0
+    for text, summary in zip(df["text"], df["summary"]):
+        not_found = False
+        if type(text) == float or type(summary) == float:
+            continue
+        for word in text.split():
+            if word not in vocab:
+                not_found = True
+        if not not_found:
+            for word in summary.split():
+                if word not in vocab:
+                    not_found = True
+        if not_found:
+            sum_count += 1
+    print(f"Total known reviews: {sum_count}")
 
-    for ct in summ_cnt:
-        if ct > ln:
-            summ_cnt[ct] += 1
+all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean.csv")
 
-print(f"Total words: {len(all_words)}")
-print(summ_cnt)
-print(max_text_cnt)
-
-# {100: 17658, 200: 30613, 300: 43170, 400: 51778, 500: 56730}
-# {100: 57903, 200: 62906, 300: 63422, 400: 63478, 500: 63485}
-# clean_wikihow()
-
-# df = pd.read_csv("data/wikihow_clean.csv")
-# save_known_text_summary(df["text"].values, df["summary"].values, "data/vocab.json", "data/wikihow_known.csv")
+# df = pd.read_csv("data/wikihow_known_500.csv")
+# summ_cnt = {100: 0, 200:0, 300:0, 400:0, 500:0}
+# max_text_cnt = 0
+# all_words = set()
+# for text, summary in zip(df["text"], df["summary"]):
+#     ln = len(summary.split())
+#     txt_ln = len(text.split())
+#     for word in summary.split():
+#         all_words.add(word)
+#     for word in text.split():
+#         all_words.add(word)
+#     if txt_ln > max_text_cnt:
+#         max_text_cnt = txt_ln
+#
+#     for ct in summ_cnt:
+#         if ct > ln:
+#             summ_cnt[ct] += 1
+#
+# print(f"Total words: {len(all_words)}")
+# print(summ_cnt)
+# print(max_text_cnt)
 

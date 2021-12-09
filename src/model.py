@@ -4,7 +4,7 @@ from datetime import datetime
 class TextEncoder(nn.Module):
     def __init__(self, in_dim = 300, hidden_size = 200, num_layers = 2):
         super(TextEncoder, self).__init__()
-        self.encoder = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, num_layers=num_layers, bidirectional=True, batch_first=True, dropout=0.2)
+        self.encoder = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, num_layers=num_layers, bidirectional=True, batch_first=True, dropout=0.4)
 
     def forward(self, samples):
         return self.encoder(samples)
@@ -12,7 +12,7 @@ class TextEncoder(nn.Module):
 class SummaryDecoder(nn.Module):
     def __init__(self, in_dim = 300, hidden_size = 200, num_layers = 2):
         super(SummaryDecoder, self).__init__()
-        self.decoder = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, num_layers=num_layers, bidirectional=True, batch_first=True, dropout=0.2)
+        self.decoder = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, num_layers=num_layers, bidirectional=True, batch_first=True, dropout=0.4)
 
     def forward(self, samples):
         return self.decoder(samples)
@@ -29,7 +29,7 @@ class AttentionModel(nn.Module):
         self.encoder = TextEncoder(hidden_size = self.hidden_size)
         self.decoder = SummaryDecoder(hidden_size = self.hidden_size)
 
-        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.hidden_size * 2, num_heads = self.num_heads, dropout=0.1)
+        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.hidden_size * 2, num_heads = self.num_heads, dropout=0.5)
 
         self.prediction_layers = nn.Sequential(
             nn.BatchNorm1d(num_features=self.hidden_size * 2),

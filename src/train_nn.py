@@ -58,7 +58,7 @@ def load_model(model, model_path):
         return model
     except Exception as e:
         traceback.print_exc(e)
-        print("Error occured while loading, ignoring...")
+        logging.info("Error occured while loading, ignoring...")
 
 def save_model(model, model_path):
     directory_path = "/".join(model_path.split("/")[:-1])
@@ -91,7 +91,7 @@ def get_bucketed_datasets(data_f, vocab, bucket_width = 100):
 
 def get_bucket_dataloaders_wiki(data_path, vocab, batch_size):
     df = pd.read_csv(data_path, ",")
-    train_df, test_df = train_test_split(df, test_size=0.1)
+    train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
 
     train_bucket_datasets = get_bucketed_datasets(train_df, vocab)
     test_bucket_datasets = get_bucketed_datasets(test_df, vocab)
@@ -172,7 +172,7 @@ def train_nn_with_limited_embedding(train_options):
     min_test_loss = 1e+6
 
     for epoch_num in range(train_options["epochs"]):
-        print(f"Epoch: {epoch_num}")
+        logging.info(f"Epoch: {epoch_num}")
         total_train_batches = 0
         total_train_loss = 0
         grad_acc_batch = 4
@@ -182,6 +182,9 @@ def train_nn_with_limited_embedding(train_options):
         for k in train_bucket_loaders:
             train_loader = train_bucket_loaders[k]
             for batch_idx, (texts, summaries) in enumerate(train_loader):
+                if total_train_batches % 100 == 0:
+                    logging.info(f"Current time: {datetime.now()}")
+                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / total_train_batches}")
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
@@ -191,19 +194,15 @@ def train_nn_with_limited_embedding(train_options):
 
                 loss = loss / grad_acc_batch
 
-                print(f"Before backprop: {datetime.now()}")
                 loss.backward()
-                print(f"After backprop: {datetime.now()}")
                 if ((batch_idx + 1) % grad_acc_batch == 0) or (batch_idx == (len(train_loader) - 1)):
                     optimizer.step()
                     optimizer.zero_grad()
 
-                print(datetime.now())
-
         test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
 
-        print(f"Train Loss: {total_train_loss / total_train_batches}")
-        print(f"Test Loss: {test_loss}")
+        logging.info(f"Train Loss: {total_train_loss / total_train_batches}")
+        logging.info(f"Test Loss: {test_loss}")
 
         if min_test_loss > test_loss:
             min_test_loss = test_loss
@@ -244,7 +243,7 @@ def train_nn(train_options):
     min_test_loss = 20000
 
     for epoch_num in range(train_options["epochs"]):
-        print(f"Epoch: {epoch_num}")
+        logging.info(f"Epoch: {epoch_num}")
         total_train_batches = 0
         total_train_loss = 0
         grad_acc_batch = 16
@@ -252,8 +251,13 @@ def train_nn(train_options):
         model.train()
 
         for k in train_bucket_loaders:
+
             train_loader = train_bucket_loaders[k]
             for batch_idx, (texts, summaries) in enumerate(train_loader):
+                if total_train_batches % 100 == 0:
+                    logging.info(f"Current time: {datetime.now()}")
+                    logging.info(f"Batch num: {total_train_batches}")
+
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
@@ -268,12 +272,10 @@ def train_nn(train_options):
                     optimizer.step()
                     optimizer.zero_grad()
 
-                print(datetime.now())
-
         test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
 
-        print(f"Train Loss: {total_train_loss / total_train_batches}")
-        print(f"Test Loss: {test_loss}")
+        logging.info(f"Train Loss: {total_train_loss / total_train_batches}")
+        logging.info(f"Test Loss: {test_loss}")
 
         if min_test_loss > test_loss:
             min_test_loss = test_loss
