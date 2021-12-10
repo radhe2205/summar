@@ -7,6 +7,20 @@ import matplotlib.pyplot as plt
 
 from src.embeddings import load_vocab, load_embeddings
 
+def find_all_num(data):
+    all_ch_c = len(data)
+    i = 0
+    all_nums = set()
+    while i < all_ch_c:
+        if data[i].isnumeric():
+            num = data[i]
+            i+=1
+            while data[i].isnumeric():
+                num = num + data[i]
+                i+=1
+            all_nums.add(num)
+        i+=1
+    print(all_nums)
 
 def clean_text(text):
     lemmatizer = WordNetLemmatizer()
@@ -17,8 +31,8 @@ def clean_text(text):
     text = remove_non_ascii(text=text)
     text = add_space_latin(text=text)
     text = apostrophe_handling(text=text)
-    text = remove_punc(text=text)
-    text = remove_numbers(text=text)
+    text = add_space_punc(text=text)
+    # text = remove_numbers(text=text)
     #text = remove_stop(text=text, stop=stop) # NOT NEEDED
     text = reduce_words(text=text)
     #text = stem_words(text=text, lemmatizer=lemmatizer)
@@ -188,9 +202,11 @@ def apostrophe_handling(text):
             text = text.replace(word, contractions[word])
     return text
 
-def remove_punc(text):
-    text = re.sub('[()!?.,:;&@#*$%^+=-]', ' ', text)
-    text = re.sub('\[.*?\]', ' ', text)
+def add_space_punc(text):
+    # pat = re.compile(r"[()!?.,:;&@#*$%^+=-]")
+    pat = re.compile(r"([\[()!?.,:;&@#*$%><^\"\'+=/\\\-\]])")
+    # text = re.sub('[()!?.,:;&@#*$%^+=-]', ' ', text)
+    text = pat.sub(' \\1 ', text)
     return text
 
 def remove_numbers(text):
@@ -243,7 +259,8 @@ def save_cleaned_text(texts, summaries, file_path): # np_arrays
         cleaned_texts.append(clean_text(text))
 
     cleaned_frame = pd.DataFrame({"text": cleaned_texts, "summary": cleaned_summaries})
-    cleaned_frame.to_csv(file_path, sep = ",")
+    if file_path is not None:
+        cleaned_frame.to_csv(file_path, sep = ",")
     return cleaned_texts, cleaned_summaries
 
 def find_all_with_known_words(texts, summaries, wordtoidx):
@@ -268,8 +285,7 @@ def find_all_with_known_words(texts, summaries, wordtoidx):
 
     return known_texts, known_summaries
 
-def save_known_text_summary(texts, summaries, vocab_path, save_path):
-    wordtoidx = load_vocab(vocab_path)
+def save_known_text_summary(texts, summaries, wordtoidx, save_path):
     print(f"Length before known word filter {len(texts)}")
 
     known_texts, known_summaries = find_all_with_known_words(texts, summaries, wordtoidx)
@@ -277,8 +293,9 @@ def save_known_text_summary(texts, summaries, vocab_path, save_path):
     print(f"Length After known word filter {len(known_summaries)}")
 
     df = pd.DataFrame({"text": known_texts, "summary": known_summaries})
-    df.to_csv(save_path, sep= ",")
-    return df
+    if save_path is not None:
+        df.to_csv(save_path, sep= ",")
+    return known_texts, known_summaries
 
 def clean_wikihow():
     print("Reading started.")
@@ -325,8 +342,10 @@ def add_start_end(file_path):
     texts = []
     summaries = []
     for text, summary in zip(df["text"], df["summary"]):
+        if type(text) == float or type(summary) == float:
+            continue
         summaries.append("<start> " + summary + " <end>")
-        texts.append(text)
+        texts.append("<start> " + text + " <end>")
     pd.DataFrame({"text": texts, "summary": summaries}).to_csv(file_path, sep = ",")
 
 def all_known_count(emb_path, data_path):
@@ -348,7 +367,38 @@ def all_known_count(emb_path, data_path):
             sum_count += 1
     print(f"Total known reviews: {sum_count}")
 
-all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean.csv")
+def final_preprocessing():
+    # clean data
+    # find all with existing emb
+    # add start end
+    # save
+
+    df = pd.read_csv("data/wikihow.csv")
+    print("CLEANING...")
+    texts, summaries = save_cleaned_text(df["text"], df["headline"], None)
+    print("LOADING EMBEDDING...")
+    _, vocab = load_embeddings("data/embeddings/glove822/glove.6B.50d.txt", 50)
+    print("FINDING ALL KNOWNS...")
+    texts, summaries = save_known_text_summary(texts, summaries, vocab, save_path = None)
+    pd.DataFrame({"text": texts, "summary": summaries}).to_csv("data/wikihow_final_clean_known.csv", sep=",")
+
+    print(f"total datapoints {len(texts)}")
+    add_start_end("data/wikihow_final_clean_known.csv")
+    print("DONE.")
+
+# final_preprocessing()
+
+# all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean.csv")
+
+df = pd.read_csv("data/wikihow_final_clean_known.csv")
+all_words = set()
+for text, summary in zip(df["text"], df["summary"]):
+    for word in text.split():
+        all_words.add(word)
+    for word in summary.split():
+        all_words.add(word)
+print(len(all_words))
+
 
 # df = pd.read_csv("data/wikihow_known_500.csv")
 # summ_cnt = {100: 0, 200:0, 300:0, 400:0, 500:0}
@@ -371,4 +421,4 @@ all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean
 # print(f"Total words: {len(all_words)}")
 # print(summ_cnt)
 # print(max_text_cnt)
-
+#

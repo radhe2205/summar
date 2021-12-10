@@ -8,28 +8,25 @@ class GloveLimitedEmbedding(nn.Module):
     def __init__(self, total_embeddings, embedding_w, embedding_dim=300): # total_embedding includes start and end marker.
         super(GloveLimitedEmbedding, self).__init__()
         if embedding_w is not None:
-            self.embeddings = nn.Embedding(embedding_w.shape[0] + 1, embedding_w.shape[1], padding_idx=-1).requires_grad_(False)
+            self.embeddings = nn.Embedding(*embedding_w.shape, padding_idx=-1).requires_grad_(False)
             with torch.no_grad():
-                self.embeddings.weight.data[:-1, :] = embedding_w
-            self.total_embeddings = embedding_w.shape[0]
+                self.embeddings.weight.data = embedding_w
 
         elif total_embeddings is not None:
-            self.embeddings = nn.Embedding(total_embeddings - 1, embedding_dim, padding_idx=-1).requires_grad_(False)
-            self.total_embeddings = total_embeddings - 2
+            self.embeddings = nn.Embedding(total_embeddings - 2, embedding_dim, padding_idx=-1).requires_grad_(False)
 
         else:
             raise Exception("Bad Initialisation")
 
-        self.beg_end_emb = nn.Embedding.from_pretrained(torch.randn(2, embedding_dim)).requires_grad_(False)
-        self.start_idx = self.embeddings.weight.shape[0] - 1
-        self.end_idx = self.start_idx + 1
+        self.beg_end_emb = nn.Embedding.from_pretrained(torch.randn(2, embedding_dim)).requires_grad_(True)
+        self.start_idx = self.embeddings.weight.shape[0] # After padding
+        self.end_idx = self.start_idx + 1 # after start
 
     def get_embeddings(self, idxes):
         # idxes[idxes == -1] = self.embeddings.padding_idx
 
         start_idxes = idxes == self.start_idx
         end_idxes = idxes == self.end_idx
-        idxes[idxes == -1] = self.embeddings.padding_idx
         idxes[start_idxes] = self.embeddings.padding_idx
         idxes[end_idxes] = self.embeddings.padding_idx
 
@@ -68,7 +65,7 @@ class GloveEmbedding(nn.Module):
 
 def load_limited_embeddings(wordtoidx, embedding_path, embedding_dim = 300):
     rem = 2 if "<start>" in wordtoidx else 0
-    embedding_vec = torch.zeros((len(wordtoidx.keys()) - rem, embedding_dim))
+    embedding_vec = torch.zeros((len(wordtoidx.keys()) - rem, embedding_dim)) # Padding index automatically assigned 0
     with open(embedding_path, "r", encoding="utf-8") as f:
         for line in f:
             vals = line.split()

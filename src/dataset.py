@@ -6,8 +6,8 @@ class SummaryDataset(nn.Module):
     def __init__(self, texts, summaries, wordtoidx, text_len, summary_len):
         super(SummaryDataset, self).__init__()
         self.wordtoidx = wordtoidx # TODO: Make sure to add index of <start> and <end> token
-        self.text_idxes = torch.empty(len(texts), text_len).long().fill_(-1)
-        self.summary_idxes = torch.empty(len(texts), summary_len).long().fill_(-1)
+        self.text_idxes = torch.empty(len(texts), text_len).long().fill_(wordtoidx["<padding>"])
+        self.summary_idxes = torch.empty(len(texts), summary_len).long().fill_(wordtoidx["<padding>"])
 
         for i, (text, summary) in enumerate(zip(texts, summaries)):
             for j, word in enumerate(text.split()):

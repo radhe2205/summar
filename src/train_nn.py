@@ -29,8 +29,8 @@ train_options = {
     "load_vocab": False,
     "vocab_path": "data/vocab.json",
     "model_path": "saved_models/attention_summ.model",
-    "train_data_path": "data/wikihow_known_500.csv",
-    "test_data_path": "data/wikihow_known_500.csv",
+    "train_data_path": "data/wikihow_final_clean_known.csv.csv",
+    "test_data_path": "data/wikihow_final_clean_known.csv.csv",
     "batch_size": 32,
     "lr_rate": 0.0001,
     "epochs": 100,
@@ -137,8 +137,9 @@ def get_vocab_from_dataset(data_path):
             all_words.add(word)
     wordtoidx = {word:i for i, word in enumerate(all_words)}
     ln = len(all_words)
-    wordtoidx["<start>"] = ln
-    wordtoidx["<end>"] = ln+1
+    wordtoidx["<padding>"] = ln
+    wordtoidx["<start>"] = ln + 1
+    wordtoidx["<end>"] = ln + 2
     return wordtoidx
 
 def train_nn_with_limited_embedding(train_options):
@@ -159,6 +160,7 @@ def train_nn_with_limited_embedding(train_options):
         load_model(model, train_options["model_path"])
 
     if train_options["save_model"]:
+        print("SAVED MODEL")
         save_model(model, train_options["model_path"])
 
     if not train_options["train_model"]:
@@ -184,7 +186,7 @@ def train_nn_with_limited_embedding(train_options):
             for batch_idx, (texts, summaries) in enumerate(train_loader):
                 if total_train_batches % 100 == 0:
                     logging.info(f"Current time: {datetime.now()}")
-                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / total_train_batches}")
+                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / (1e-6 + total_train_batches)}")
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
@@ -198,6 +200,10 @@ def train_nn_with_limited_embedding(train_options):
                 if ((batch_idx + 1) % grad_acc_batch == 0) or (batch_idx == (len(train_loader) - 1)):
                     optimizer.step()
                     optimizer.zero_grad()
+
+                del texts
+                del summaries
+                del summary_pred
 
         test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
 
