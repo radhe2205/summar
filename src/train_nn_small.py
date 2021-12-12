@@ -19,7 +19,7 @@ from src.model import AttentionModel, AttentionModelLimited
 from datetime import datetime
 import logging
 import sys
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.basicConfig(filename = "training_small_100.txt", filemode = "a", format='%(asctime)s,%(msecsd %(name)s %(levelname)s %(message)s',datefmt='%H:%M:%S',level=logging.DEBUG)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -29,14 +29,14 @@ train_options = {
     "embedding_path": "data/embeddings/glove822/glove.6B.{dims}d.txt",
     "base_path": "",
     "train_model": True,
-    "load_model": True,
-    "save_model": False,
-    "load_vocab": True,
-    "vocab_path": "data/vocab_test.json",
-    "model_path": "saved_models/attention_summ_test.model",
-    "train_data_path": "data/wikihow_final_clean_known_train.csv",
-    "test_data_path": "data/wikihow_final_clean_known_test.csv",
-    "batch_size": 1,
+    "load_model": False,
+    "save_model": True,
+    "load_vocab": False,
+    "vocab_path": "data/vocab_100.json",
+    "model_path": "saved_models/attention_summ_100.model",
+    "train_data_path": "data/wikihow_final_clean_known_100_train.csv",
+    "test_data_path": "data/wikihow_final_clean_known_100_test.csv",
+    "batch_size": 128,
     "lr_rate": 0.0001,
     "epochs": 100,
 }
@@ -113,12 +113,16 @@ def get_bucket_dataloaders_wiki(data_path, vocab, batch_size):
 
     return train_bucket_loaders, test_bucket_loaders
 
-def get_test_loss(model, bucket_loader, loss_fn, rank = 0):
+def get_test_loss(model, bucket_loader, loss_fn, rank = 0, idxtoword = None):
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{rank}")
     else:
         device = torch.device("cpu")
     model.eval()
+
+    if idxtoword is not None:
+        logging.info("BEAM SEARCH TEST SUMMARY\n")
+        generate_summary(model, bucket_loader, idxtoword)
 
     with torch.no_grad():
         total_batches = 0
@@ -129,6 +133,9 @@ def get_test_loss(model, bucket_loader, loss_fn, rank = 0):
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
+                if total_batches%100 == 0:
+                    logging.info("TEST SUMMARY")
+                    print_summary(summary_pred, idxtoword)
                 loss = loss_fn(summary_pred[:, :-1].transpose(1,2), summaries[:, 1:])
                 total_loss += loss.item()
                 total_batches += 1
@@ -169,7 +176,7 @@ def generate_summary(model, loaders, idxtoword, rank = 0):
     model.eval()
 
     with torch.no_grad():
-        for text_idxes, summary_idxes in list(loaders.values())[1]:
+        for text_idxes, summary_idxes in list(loaders.values())[0]:
             for i in range(text_idxes.shape[0]):
                 sel_t_idxes = text_idxes[i:i+1].to(device)
                 sel_s_idxes = summary_idxes[i:i+1]
@@ -182,7 +189,7 @@ def generate_summary(model, loaders, idxtoword, rank = 0):
 def print_summary(summaries, idxtoword): # batch, C, seq_len
     summary = summaries[0]
     idxes = summary.argmax(dim = 1)
-    print(" ".join([idxtoword[idx.item()] for idx in idxes]))
+    logging.info(" ".join([idxtoword[idx.item()] for idx in idxes]))
 
 def plot_attention_on_words(attention_mat):
     attention_mat = np.round(attention_mat.numpy(), decimals=2)
@@ -230,7 +237,7 @@ def train_nn_with_limited_embedding(train_options):
 
     optimizer = Adam(model.parameters(), lr=train_options["lr_rate"])
 
-    min_test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
+    min_test_loss = get_test_loss(model, test_bucket_loaders, loss_fn, idxtoword = idxtoword)
 
     generate_summary(model, train_bucket_loaders, idxtoword)
 
@@ -247,16 +254,17 @@ def train_nn_with_limited_embedding(train_options):
         for k in train_bucket_loaders:
             train_loader = train_bucket_loaders[k]
             for batch_idx, (texts, summaries) in enumerate(train_loader):
-                if batch_idx == 0:
-                    generate_attention_plot(model, texts, summaries, idxtoword)
+                # if batch_idx == 0:
+                    # generate_attention_plot(model, texts, summaries, idxtoword)
 
-                if total_train_batches % 100 == 0:
-                    logging.info(f"Current time: {datetime.now()}")
-                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / (1e-6 + total_train_batches)}")
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
-                print_summary(summary_pred[:,:200,:], idxtoword)
+                if total_train_batches % 100 == 0:
+                    logging.info(f"Current time: {datetime.now()}")
+                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / (1e-6 + total_train_batches)}")
+                    logging.info("TRAINING SUMMARY...\n")
+                    print_summary(summary_pred[:,:200,:], idxtoword)
                 loss = loss_fn(summary_pred[:, :-1].transpose(1,2), summaries[:, 1:])
                 total_train_loss += loss.item()
                 total_train_batches += 1
@@ -271,8 +279,10 @@ def train_nn_with_limited_embedding(train_options):
                 del texts
                 del summaries
                 del summary_pred
+        logging.info("Train BEAM SEARCH SUMMARY...\n\n")
+        generate_summary(model, train_bucket_loaders, idxtoword)
 
-        test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
+        test_loss = get_test_loss(model, test_bucket_loaders, loss_fn, idxtoword = idxtoword)
 
         logging.info(f"Train Loss: {total_train_loss / total_train_batches}")
         logging.info(f"Test Loss: {test_loss}")

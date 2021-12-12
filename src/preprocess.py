@@ -393,7 +393,7 @@ def final_preprocessing():
     texts, summaries = save_cleaned_text(df["text"], df["headline"], None)
 
     print("Filtering with word count")
-    texts, summaries = filter_with_word_count(texts, summaries, 100, 20)
+    texts, summaries = filter_with_word_count(texts, summaries, 500, 50)
 
     print("LOADING EMBEDDING...")
     _, vocab = load_embeddings("data/embeddings/glove822/glove.6B.50d.txt", 50)
@@ -404,12 +404,12 @@ def final_preprocessing():
 
     train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
 
-    train_df.to_csv("data/wikihow_final_clean_known_100_train.csv", sep = ",")
-    test_df.to_csv("data/wikihow_final_clean_known_100_test.csv", sep = ",")
+    train_df.to_csv("data/wikihow_final_clean_known_50_train.csv", sep = ",")
+    test_df.to_csv("data/wikihow_final_clean_known_50_test.csv", sep = ",")
 
     print(f"total datapoints {len(texts)}")
-    add_start_end("data/wikihow_final_clean_known_100_train.csv")
-    add_start_end("data/wikihow_final_clean_known_100_test.csv")
+    add_start_end("data/wikihow_final_clean_known_50_train.csv")
+    add_start_end("data/wikihow_final_clean_known_50_test.csv")
     print("DONE.")
 
 final_preprocessing()

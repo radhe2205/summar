@@ -57,7 +57,7 @@ class AttentionModel(nn.Module):
 
 
 class AttentionModelLimited(nn.Module):
-    def __init__(self, embeddings, vocab_size = 400004, embedding_dim = 300, hidden_size = 80):
+    def __init__(self, embeddings, vocab_size = 400004, embedding_dim = 300, hidden_size = 256):
         super(AttentionModelLimited, self).__init__()
         self.embedding_dim = embedding_dim
         self.hidden_size = hidden_size
@@ -97,7 +97,6 @@ class AttentionModelLimited(nn.Module):
         seq_len = 1
         while len(inactivated_beams) < beam_size and seq_len < 100:
             seq_len += 1
-            print(f"Processing {seq_len}")
             top_samples = [] #(beam_num, word_idx, hidden_state, log_prob, seq_len)
             for beam_num in range(beam_size):
                 last_elem = beam[beam_num][-1]
