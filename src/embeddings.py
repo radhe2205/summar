@@ -24,6 +24,7 @@ class GloveLimitedEmbedding(nn.Module):
 
     def get_embeddings(self, idxes):
         # idxes[idxes == -1] = self.embeddings.padding_idx
+        idxes = idxes.clone()
 
         start_idxes = idxes == self.start_idx
         end_idxes = idxes == self.end_idx

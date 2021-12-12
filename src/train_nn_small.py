@@ -1,4 +1,6 @@
 import os
+import numpy as np
+
 import traceback
 import pandas as pd
 import torch
@@ -8,6 +10,7 @@ from torch.nn import DataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as dist
+import matplotlib.pyplot as plt
 
 from src.dataset import SummaryDataset
 from src.embeddings import load_vocab, GloveEmbedding, load_embeddings, save_vocab, load_limited_embeddings, \
@@ -26,14 +29,14 @@ train_options = {
     "embedding_path": "data/embeddings/glove822/glove.6B.{dims}d.txt",
     "base_path": "",
     "train_model": True,
-    "load_model": False,
+    "load_model": True,
     "save_model": False,
-    "load_vocab": False,
-    "vocab_path": "data/vocab_multi.json",
-    "model_path": "saved_models/attention_summ.model_multi",
+    "load_vocab": True,
+    "vocab_path": "data/vocab_test.json",
+    "model_path": "saved_models/attention_summ_test.model",
     "train_data_path": "data/wikihow_final_clean_known_train.csv",
     "test_data_path": "data/wikihow_final_clean_known_test.csv",
-    "batch_size": 4,
+    "batch_size": 1,
     "lr_rate": 0.0001,
     "epochs": 100,
 }
@@ -92,30 +95,11 @@ def get_bucketed_datasets(data_f, vocab, bucket_width = 100):
 
     return bucket_dataset
 
-def get_bucket_dataloaders_wiki_multi_gpu(data_path, vocab, batch_size, rank, world_size):
-    df = pd.read_csv(data_path, ",")
-    train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
-
-    train_bucket_datasets = get_bucketed_datasets(train_df, vocab)
-    test_bucket_datasets = get_bucketed_datasets(test_df, vocab)
-
-    train_bucket_loaders = {}
-    for k in train_bucket_datasets:
-        sampler = DistributedSampler(dataset=train_bucket_datasets[k], num_replicas=world_size, rank = rank)
-        train_bucket_loaders[k] = DataLoader(dataset=train_bucket_datasets[k], shuffle=False, batch_size=batch_size, sampler = sampler, num_workers=0, pin_memory=True)
-    test_bucket_loaders = {}
-    for k in test_bucket_datasets:
-        test_bucket_loaders[k] = DataLoader(dataset=test_bucket_datasets[k], shuffle=False, batch_size=batch_size)
-
-    return train_bucket_loaders, test_bucket_loaders
-
-
 def get_bucket_dataloaders_wiki(data_path, vocab, batch_size):
     df = pd.read_csv(data_path, ",")
     train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
-
     train_df = train_df[:1000]
-    test_df = test_df[:100]
+    test_df = test_df[:1000]
 
     train_bucket_datasets = get_bucketed_datasets(train_df, vocab)
     test_bucket_datasets = get_bucketed_datasets(test_df, vocab)
@@ -129,7 +113,7 @@ def get_bucket_dataloaders_wiki(data_path, vocab, batch_size):
 
     return train_bucket_loaders, test_bucket_loaders
 
-def get_test_loss(model, bucket_loader, loss_fn, rank = 0, idxtoword = None):
+def get_test_loss(model, bucket_loader, loss_fn, rank = 0):
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{rank}")
     else:
@@ -145,26 +129,26 @@ def get_test_loss(model, bucket_loader, loss_fn, rank = 0, idxtoword = None):
                 texts = texts.to(device)
                 summaries = summaries.to(device)
                 summary_pred = model(texts, summaries)
-                if idxtoword is not None:
-                    print_summary(summary_pred, idxtoword=idxtoword)
                 loss = loss_fn(summary_pred[:, :-1].transpose(1,2), summaries[:, 1:])
                 total_loss += loss.item()
                 total_batches += 1
     return total_loss / total_batches
 
-def get_vocab_from_dataset(data_path):
+def get_vocab_from_dataset(data_paths):
     all_words = set()
     all_words.add("<unk>")
-    df = pd.read_csv(data_path, sep=",")
-    for text, summary in zip(df["text"], df["summary"]):
-        for word in text.split():
-            if word in ("<start>", "<end>"):
-                continue
-            all_words.add(word)
-        for word in summary.split():
-            if word in ("<start>", "<end>"):
-                continue
-            all_words.add(word)
+
+    for data_path in data_paths:
+        df = pd.read_csv(data_path, sep=",")
+        for text, summary in zip(df["text"], df["summary"]):
+            for word in text.split():
+                if word in ("<start>", "<end>"):
+                    continue
+                all_words.add(word)
+            for word in summary.split():
+                if word in ("<start>", "<end>"):
+                    continue
+                all_words.add(word)
     wordtoidx = {word:i for i, word in enumerate(all_words)}
     ln = len(all_words)
     wordtoidx["<padding>"] = ln
@@ -172,84 +156,6 @@ def get_vocab_from_dataset(data_path):
     wordtoidx["<end>"] = ln + 2
     return wordtoidx
 
-def train_nn_with_limited_embedding_multi_gpu(rank, world_size, train_options):
-    dist.init_process_group(
-        backend='nccl',
-        init_method='env://',
-        world_size=world_size,
-        rank=rank)
-
-    if train_options["load_vocab"]:
-        wordtoidx = load_vocab(train_options["vocab_path"])
-        embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), None, train_options["embedding_dim"])
-    else:
-        wordtoidx = get_vocab_from_dataset(train_options["train_data_path"])
-        embedding_vec = load_limited_embeddings(wordtoidx, train_options["embedding_path"], train_options["embedding_dim"])
-        embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), embedding_vec, train_options["embedding_dim"])
-        save_vocab(wordtoidx, train_options["vocab_path"])
-
-    model = nn.parallel.DistributedDataParallel(AttentionModelLimited(embeddings, len(wordtoidx.keys())), device_ids=[rank])
-
-    if train_options["load_model"]:
-        load_model(model, train_options["model_path"])
-
-    if train_options["save_model"]:
-        print("SAVED MODEL")
-        save_model(model, train_options["model_path"])
-
-    if not train_options["train_model"]:
-        return model
-
-    train_bucket_loaders, test_bucket_loaders = get_bucket_dataloaders_wiki_multi_gpu(train_options["train_data_path"], wordtoidx, train_options["batch_size"], rank, world_size)
-    loss_fn = nn.CrossEntropyLoss()
-
-    optimizer = Adam(model.parameters(), lr=train_options["lr_rate"])
-
-    min_test_loss = get_test_loss(model, test_bucket_loaders, loss_fn, rank)
-
-    for epoch_num in range(train_options["epochs"]):
-        logging.info(f"Epoch: {epoch_num}")
-        total_train_batches = 0
-        total_train_loss = 0
-        grad_acc_batch = 4
-
-        model.train()
-
-        for k in train_bucket_loaders:
-            train_loader = train_bucket_loaders[k]
-            for batch_idx, (texts, summaries) in enumerate(train_loader):
-                if total_train_batches % 100 == 0:
-                    logging.info(f"Current time: {datetime.now()}")
-                    logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / (1e-6 + total_train_batches)}")
-                texts = texts.cuda(rank)
-                summaries = summaries.cuda(rank)
-                summary_pred = model(texts, summaries)
-                loss = loss_fn(summary_pred[:, :-1].transpose(1,2), summaries[:, 1:])
-                total_train_loss += loss.item()
-                total_train_batches += 1
-
-                loss = loss / grad_acc_batch
-
-                loss.backward()
-                if ((batch_idx + 1) % grad_acc_batch == 0) or (batch_idx == (len(train_loader) - 1)):
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-                del texts
-                del summaries
-                del summary_pred
-
-        test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
-
-        logging.info(f"Train Loss: {total_train_loss / total_train_batches}")
-        logging.info(f"Test Loss: {test_loss}")
-
-        if min_test_loss > test_loss:
-            min_test_loss = test_loss
-            if train_options["save_model"]:
-                save_model(model, train_options["model_path"])
-
-    return model
 
 def convert_to_idx_word(wordtoidx):
     return {wordtoidx[word]: word for word in wordtoidx}
@@ -278,12 +184,31 @@ def print_summary(summaries, idxtoword): # batch, C, seq_len
     idxes = summary.argmax(dim = 1)
     print(" ".join([idxtoword[idx.item()] for idx in idxes]))
 
+def plot_attention_on_words(attention_mat):
+    attention_mat = np.round(attention_mat.numpy(), decimals=2)
+    fig, ax = plt.subplots()
+    im = ax.imshow(attention_mat)
+
+    ax.set_title("Attentions heatmap encoder/decoder.")
+    # fig.tight_layout()
+    plt.show()
+
+def generate_attention_plot(model, text_idxes, summary_idxes, idxtoword):
+
+    attn_outputs = model.get_attention_output(text_idxes, summary_idxes) #BxSxT
+    for text_idx, summary_idx, attn_output in zip(text_idxes, summary_idxes, attn_outputs):
+        text_len = [1 for i in text_idx if idxtoword[i.item()] != "<padding>"]
+        summ_len = [1 for i in summary_idx if idxtoword[i.item()] != "<padding>"]
+        plot_attention_on_words(attention_mat=attn_output[:text_len, :summ_len])
+
+
+
 def train_nn_with_limited_embedding(train_options):
     if train_options["load_vocab"]:
         wordtoidx = load_vocab(train_options["vocab_path"])
         embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), None, train_options["embedding_dim"])
     else:
-        wordtoidx = get_vocab_from_dataset(train_options["train_data_path"])
+        wordtoidx = get_vocab_from_dataset([train_options["train_data_path"], train_options["test_data_path"]])
         embedding_vec = load_limited_embeddings(wordtoidx, train_options["embedding_path"], train_options["embedding_dim"])
         embeddings = GloveLimitedEmbedding(len(wordtoidx.keys()), embedding_vec, train_options["embedding_dim"])
         save_vocab(wordtoidx, train_options["vocab_path"])
@@ -305,7 +230,7 @@ def train_nn_with_limited_embedding(train_options):
 
     optimizer = Adam(model.parameters(), lr=train_options["lr_rate"])
 
-    min_test_loss = get_test_loss(model, test_bucket_loaders, loss_fn, idxtoword = idxtoword)
+    min_test_loss = get_test_loss(model, test_bucket_loaders, loss_fn)
 
     generate_summary(model, train_bucket_loaders, idxtoword)
 
@@ -322,6 +247,9 @@ def train_nn_with_limited_embedding(train_options):
         for k in train_bucket_loaders:
             train_loader = train_bucket_loaders[k]
             for batch_idx, (texts, summaries) in enumerate(train_loader):
+                if batch_idx == 0:
+                    generate_attention_plot(model, texts, summaries, idxtoword)
+
                 if total_train_batches % 100 == 0:
                     logging.info(f"Current time: {datetime.now()}")
                     logging.info(f"Batch num: {total_train_batches}, loss so far {total_train_loss / (1e-6 + total_train_batches)}")
@@ -428,16 +356,5 @@ def train_nn(train_options):
                 save_model(model, train_options["model_path"])
 
     return model
-
-# model = train_nn(train_options)
-
-def train_on_multi_gpu():
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = "8110"
-    world_size = torch.cuda.device_count()
-    logging.info(f"{world_size} GPUS FOUND.")
-    multiprocessing.spawn(train_nn_with_limited_embedding_multi_gpu, nprocs=world_size, args=(world_size, train_options, ))
-
-# train_on_multi_gpu()
 
 train_nn_with_limited_embedding(train_options)

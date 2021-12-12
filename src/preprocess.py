@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from nltk import WordNetLemmatizer
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 
 from src.embeddings import load_vocab, load_embeddings
 
@@ -367,6 +368,20 @@ def all_known_count(emb_path, data_path):
             sum_count += 1
     print(f"Total known reviews: {sum_count}")
 
+def filter_with_word_count(texts, summaries, word_count_t, word_count_s):
+    filtered_texts = []
+    filtered_summaries = []
+    for text, summary in zip(texts, summaries):
+        ln = len(text.split())
+        lns = len(text.split())
+        if ln > word_count_t:
+            continue
+        if lns > word_count_s:
+            continue
+        filtered_summaries.append(summary)
+        filtered_texts.append(text)
+    return filtered_texts, filtered_summaries
+
 def final_preprocessing():
     # clean data
     # find all with existing emb
@@ -376,28 +391,81 @@ def final_preprocessing():
     df = pd.read_csv("data/wikihow.csv")
     print("CLEANING...")
     texts, summaries = save_cleaned_text(df["text"], df["headline"], None)
+
+    print("Filtering with word count")
+    texts, summaries = filter_with_word_count(texts, summaries, 100, 20)
+
     print("LOADING EMBEDDING...")
     _, vocab = load_embeddings("data/embeddings/glove822/glove.6B.50d.txt", 50)
     print("FINDING ALL KNOWNS...")
     texts, summaries = save_known_text_summary(texts, summaries, vocab, save_path = None)
-    pd.DataFrame({"text": texts, "summary": summaries}).to_csv("data/wikihow_final_clean_known.csv", sep=",")
+
+    df = pd.DataFrame({"text": texts, "summary": summaries})
+
+    train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
+
+    train_df.to_csv("data/wikihow_final_clean_known_100_train.csv", sep = ",")
+    test_df.to_csv("data/wikihow_final_clean_known_100_test.csv", sep = ",")
 
     print(f"total datapoints {len(texts)}")
-    add_start_end("data/wikihow_final_clean_known.csv")
+    add_start_end("data/wikihow_final_clean_known_100_train.csv")
+    add_start_end("data/wikihow_final_clean_known_100_test.csv")
     print("DONE.")
 
-# final_preprocessing()
+final_preprocessing()
 
 # all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean.csv")
+# df = pd.read_csv("data/wikihow_final_clean_known.csv")
 
-df = pd.read_csv("data/wikihow_final_clean_known.csv")
-all_words = set()
-for text, summary in zip(df["text"], df["summary"]):
-    for word in text.split():
-        all_words.add(word)
-    for word in summary.split():
-        all_words.add(word)
-print(len(all_words))
+def plot_word_count_distribution():
+    text_lens = {i:0 for i in range(13000)}
+    summary_lens = {i:0 for i in range(4000)}
+
+    df = pd.read_csv("data/wikihow.csv")
+    print(len(df))
+    # df = df[:1000]
+    all_words = set()
+    max_len_t = 0
+    max_len_s = 0
+    for text, summary in zip(df["text"], df["headline"]):
+        if type(text) != str or type(summary) != str:
+            continue
+
+        words_t = text.split()
+        words_s = summary.split()
+
+        text_lens[len(words_t)] += 1
+        summary_lens[len((words_s))] += 1
+
+        for word in words_t:
+            all_words.add(word)
+        for word in words_s:
+            all_words.add(word)
+        if len(words_t) > max_len_t:
+            max_len_t = len(words_t)
+        if len(words_s) > max_len_s:
+            max_len_s = len(words_s)
+
+    del text_lens[0]
+    del summary_lens[0]
+
+    plt.plot(text_lens.values())
+    plt.xlabel("Count words")
+    plt.ylabel("Number of data points")
+    plt.title("Text length distribution")
+    # plt.legend()
+    plt.show()
+
+    plt.plot(summary_lens.values())
+    plt.xlabel("Count words")
+    plt.ylabel("Number of data points")
+    plt.title("Summary length distribution")
+    # plt.legend()
+    plt.show()
+
+    print(f"Total distinct words {len(all_words)}")
+    print(f"Max text length {max_len_t}")
+    print(f"Max summary length {max_len_s}")
 
 
 # df = pd.read_csv("data/wikihow_known_500.csv")

@@ -1,8 +1,8 @@
 import torch
-from torch import nn
+from torch.utils.data import Dataset
 
 
-class SummaryDataset(nn.Module):
+class SummaryDataset(Dataset):
     def __init__(self, texts, summaries, wordtoidx, text_len, summary_len):
         super(SummaryDataset, self).__init__()
         self.wordtoidx = wordtoidx # TODO: Make sure to add index of <start> and <end> token
