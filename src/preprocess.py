@@ -412,7 +412,7 @@ def final_preprocessing():
     add_start_end("data/wikihow_final_clean_known_50_test.csv")
     print("DONE.")
 
-final_preprocessing()
+# final_preprocessing()
 
 # all_known_count("data/embeddings/glove822/glove.6B.50d.txt", "data/wikihow_clean.csv")
 # df = pd.read_csv("data/wikihow_final_clean_known.csv")
@@ -467,6 +467,49 @@ def plot_word_count_distribution():
     print(f"Max text length {max_len_t}")
     print(f"Max summary length {max_len_s}")
 
+def remove_non_string(texts, summaries):
+    clean_texts = []
+    clean_summaries = []
+
+    for i, (text, summary) in enumerate(zip(texts, summaries)):
+        if type(text) == float or pd.isnull(text) or text.isspace() or not text:
+            continue
+        clean_texts.append(text)
+        clean_summaries.append(summary)
+
+    return clean_texts, clean_summaries
+
+def create_clean_data_sith():
+    # clean data
+    # find all with existing emb
+    # add start end
+    # save
+
+    df = pd.read_csv("data/wikihow.csv")
+    print("Sith CLEANING...")
+    texts, summaries = save_cleaned_text(df["text"], df["headline"], None)
+    summaries = [" " for _ in summaries]
+
+    print("LOADING EMBEDDING...")
+    _, vocab = load_embeddings("data/embeddings/glove822/glove.6B.50d.txt", 50)
+    print("FINDING ALL KNOWNS...")
+    texts, summaries = save_known_text_summary(texts, summaries, vocab, save_path = None)
+
+    texts, summaries = remove_non_string(texts, summaries)
+
+    df = pd.DataFrame({"text": texts, "summary": summaries})
+
+    train_df, test_df = train_test_split(df, test_size=0.1, random_state=41)
+
+    train_df.to_csv("data/wikihow_final_clean_known_train_sith.csv", sep = ",")
+    test_df.to_csv("data/wikihow_final_clean_known_test_sith.csv", sep = ",")
+
+    # print(f"total datapoints {len(texts)}")
+    # add_start_end("data/wikihow_final_clean_known_train_sith.csv")
+    # add_start_end("data/wikihow_final_clean_known_test_sith.csv")
+    print("DONE.")
+
+create_clean_data_sith()
 
 # df = pd.read_csv("data/wikihow_known_500.csv")
 # summ_cnt = {100: 0, 200:0, 300:0, 400:0, 500:0}
